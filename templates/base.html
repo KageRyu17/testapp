@@ -13,24 +13,64 @@
           <h1 class="site-title">Quiz per il tuo esame</h1>
           <p class="site-subtitle">Creato da Adam Khiraoui</p>
         </div>
-        <button type="button" class="theme-toggle" onclick="toggleTheme()">
-          Tema chiaro/scuro
-        </button>
+        <div class="header-actions">
+          {% if current_user %}
+            <div class="user-badge">
+              <span class="greeting">Ciao, {{ current_user }}!</span>
+              <form method="post" action="{{ url_for('logout') }}">
+                <button type="submit" class="btn ghost">Esci</button>
+              </form>
+            </div>
+          {% endif %}
+          <button type="button" class="theme-toggle" onclick="toggleTheme()">
+            Tema chiaro/scuro
+          </button>
+        </div>
       </div>
     </header>
 
     <main class="site-main">
-      {% with messages = get_flashed_messages() %}
-        {% if messages %}
-          <div class="flash-container">
-            {% for msg in messages %}
-              <div class="flash-message">{{ msg }}</div>
-            {% endfor %}
-          </div>
+      <div class="layout">
+        {% if current_user %}
+          <aside class="history-panel">
+            <div class="history-card">
+              <h3>Cronologia quiz</h3>
+              {% if history and history|length > 0 %}
+                <ul class="history-list">
+                  {% for entry in history %}
+                    <li class="history-item">
+                      <div>
+                        <div class="history-date">{{ entry.created_at }}</div>
+                        <div class="history-preview">{{ entry.preview or 'Quiz salvato' }}</div>
+                      </div>
+                      <div class="history-meta">
+                        <span>{{ entry.num_questions }} domande</span>
+                        <a href="{{ url_for('history_detail', quiz_id=entry.id) }}" class="history-link">Apri</a>
+                      </div>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="history-empty">Qui vedrai tutti i quiz che generi.</p>
+              {% endif %}
+            </div>
+          </aside>
         {% endif %}
-      {% endwith %}
 
-      {% block content %}{% endblock %}
+        <section class="content-area">
+          {% with messages = get_flashed_messages() %}
+            {% if messages %}
+              <div class="flash-container">
+                {% for msg in messages %}
+                  <div class="flash-message">{{ msg }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endwith %}
+
+          {% block content %}{% endblock %}
+        </section>
+      </div>
     </main>
 
     <footer class="site-footer">
@@ -56,16 +96,3 @@
       const body = document.body;
       if (body.classList.contains("theme-dark")) {
         body.classList.remove("theme-dark");
-        body.classList.add("theme-light");
-        localStorage.setItem("quiz_theme", "light");
-      } else {
-        body.classList.remove("theme-light");
-        body.classList.add("theme-dark");
-        localStorage.setItem("quiz_theme", "dark");
-      }
-    }
-
-    applySavedTheme();
-  </script>
-</body>
-</html>
