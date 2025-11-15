@@ -3,45 +3,81 @@
 {% block title %}Generatore Quiz – Input{% endblock %}
 
 {% block content %}
-<div class="card">
-  <h2>Genera un nuovo quiz</h2>
-  <p class="card-intro">
-    Incolla qui il contenuto del programma (testo, appunti, slide) e scegli quante domande vuoi.
-    Il sistema genererà automaticamente domande teoriche, senza formule.
-  </p>
-
-  <form method="post" action="{{ url_for('generate_quiz') }}" class="form" enctype="multipart/form-data">
-    <div class="form-group">
-      <label for="program_text">Contenuto del programma</label>
-      <textarea id="program_text" name="program_text" rows="12"
-        placeholder="Incolla qui il testo sul punto del programma (onde meccaniche, acustiche, ecc.)"></textarea>
-    </div>
-
-    <div class="form-group">
-      <label for="program_pdf">Oppure carica un PDF</label>
-      <input type="file" id="program_pdf" name="program_pdf" accept="application/pdf" />
-      <p class="helper-text">Estrarremo automaticamente il testo del programma dal PDF.</p>
-    </div>
-
-    <div class="form-group inline-group">
-      <div>
-        <label for="num_questions">Numero di domande</label>
-        <input
-          type="number"
-          id="num_questions"
-          name="num_questions"
-          value="31"
-          min="1"
-          max="50"
-          required
-        />
+  {% if not current_user %}
+    <div class="card-grid">
+      <div class="card auth-card">
+        <h2>Accedi</h2>
+        <p class="card-intro">Entra con il tuo account per visualizzare la cronologia e creare nuovi quiz.</p>
+        <form method="post" action="{{ url_for('login') }}" class="form">
+          <div class="form-group">
+            <label for="login_username">Username</label>
+            <input type="text" id="login_username" name="username" required />
+          </div>
+          <div class="form-group">
+            <label for="login_password">Password</label>
+            <input type="password" id="login_password" name="password" required />
+          </div>
+          <button type="submit" class="btn primary">Accedi</button>
+        </form>
       </div>
-      <div class="helper-text">
-        Circa 1/2 saranno a scelta multipla, 1/2 a completamento (una sola parola).
+
+      <div class="card auth-card">
+        <h2>Crea un account</h2>
+        <p class="card-intro">Registrati gratuitamente per salvare tutte le prove che generi.</p>
+        <form method="post" action="{{ url_for('register') }}" class="form">
+          <div class="form-group">
+            <label for="register_username">Username</label>
+            <input type="text" id="register_username" name="username" required minlength="3" />
+          </div>
+          <div class="form-group">
+            <label for="register_password">Password</label>
+            <input type="password" id="register_password" name="password" required minlength="6" />
+          </div>
+          <button type="submit" class="btn secondary">Registrati</button>
+        </form>
       </div>
     </div>
+  {% else %}
+    <div class="card">
+      <h2>Genera un nuovo quiz</h2>
+      <p class="card-intro">
+        Incolla qui il contenuto del programma (testo, appunti, slide) e scegli quante domande vuoi.
+        Il sistema genererà automaticamente domande teoriche, senza formule.
+      </p>
 
-    <button type="submit" class="btn primary">Genera quiz</button>
-  </form>
-</div>
+      <form method="post" action="{{ url_for('generate_quiz') }}" class="form" enctype="multipart/form-data">
+        <div class="form-group">
+          <label for="program_text">Contenuto del programma</label>
+          <textarea id="program_text" name="program_text" rows="12"
+            placeholder="Incolla qui il testo sul punto del programma (onde meccaniche, acustiche, ecc.)"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="program_pdf">Oppure carica un PDF</label>
+          <input type="file" id="program_pdf" name="program_pdf" accept="application/pdf" />
+          <p class="helper-text">Estrarremo automaticamente il testo del programma dal PDF.</p>
+        </div>
+
+        <div class="form-group inline-group">
+          <div>
+            <label for="num_questions">Numero di domande</label>
+            <input
+              type="number"
+              id="num_questions"
+              name="num_questions"
+              value="31"
+              min="1"
+              max="50"
+              required
+            />
+          </div>
+          <div class="helper-text">
+            Circa 1/2 saranno a scelta multipla, 1/2 a completamento (una sola parola).
+          </div>
+        </div>
+
+        <button type="submit" class="btn primary">Genera quiz</button>
+      </form>
+    </div>
+  {% endif %}
 {% endblock %}
