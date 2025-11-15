@@ -130,7 +130,7 @@ def extract_text_from_pdf(uploaded_file) -> str:
         raise ValueError("Impossibile leggere il PDF caricato.") from exc
 
     extracted_parts = []
-@@ -217,121 +314,219 @@ def generate_questions_with_gemini(program_text: str, num_questions: int):
+
             {
                 "parts": [
                     {"text": full_prompt.strip()}
@@ -350,3 +350,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"Starting Flask app on port {port}...")
     app.run(host="0.0.0.0", port=port, debug=False)
+
