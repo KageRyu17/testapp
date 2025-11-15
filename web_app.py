@@ -36,7 +36,7 @@ def generate_questions_with_gemini(program_text: str, num_questions: int):
         raise ValueError("Il numero di domande deve essere > 0")
 
 
-    desired_mcq = math.ceil(num_questions * 2 / 3)
+    desired_mcq = math.ceil(num_questions * 0.5)
     desired_open = num_questions - desired_mcq
 
     full_prompt = f"""
@@ -267,4 +267,5 @@ def submit_quiz():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
 
