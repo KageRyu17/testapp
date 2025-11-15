@@ -2,12 +2,109 @@ import os
 import json
 import math
 import textwrap
+from datetime import datetime
+from uuid import uuid4
+
 import requests
 from PyPDF2 import PdfReader
-from flask import Flask, request, render_template, redirect, url_for, session, flash
+from flask import (
+    Flask,
+    request,
+    render_template,
+    redirect,
+    url_for,
+    session,
+    flash,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_API_KEY", "super-secret-key")  # fallback di sicurezza
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+USERS_FILE = os.path.join(DATA_DIR, "users.json")
+
+os.makedirs(DATA_DIR, exist_ok=True)
+
+
+def _load_users():
+    if not os.path.exists(USERS_FILE):
+        return {}
+    try:
+        with open(USERS_FILE, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except json.JSONDecodeError:
+        return {}
+
+
+def _save_users(users):
+    with open(USERS_FILE, "w", encoding="utf-8") as fh:
+        json.dump(users, fh, ensure_ascii=False, indent=2)
+
+
+def get_current_username():
+    return session.get("username")
+
+
+def get_user_data(username):
+    if not username:
+        return None
+    users = _load_users()
+    return users.get(username)
+
+
+def get_user_history(username):
+    data = get_user_data(username)
+    if not data:
+        return []
+    return data.get("history", [])
+
+
+def store_quiz_generation(username, questions, program_text):
+    users = _load_users()
+    user = users.get(username)
+    if not user:
+        return None
+
+    history = user.setdefault("history", [])
+    entry_id = str(uuid4())
+    preview = " ".join(program_text.split())[:160]
+    history_entry = {
+        "id": entry_id,
+        "created_at": datetime.utcnow().isoformat(timespec="seconds"),
+        "num_questions": len(questions),
+        "preview": preview,
+        "questions": questions,
+        "last_result": None,
+    }
+    history.insert(0, history_entry)
+    _save_users(users)
+    return entry_id
+
+
+def update_quiz_history(username, quiz_id, payload):
+    users = _load_users()
+    user = users.get(username)
+    if not user:
+        return
+    history = user.get("history", [])
+    for entry in history:
+        if entry.get("id") == quiz_id:
+            entry.update(payload)
+            break
+    _save_users(users)
+
+
+def render_with_history(template_name, **context):
+    username = get_current_username()
+    context.setdefault("history", get_user_history(username))
+    return render_template(template_name, **context)
+
+
+@app.context_processor
+def inject_user():
+    return {"current_user": get_current_username()}
 
 # Chiave e modello Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "INSERISCI_LA_TUA_GEMINI_API_KEY_QUI")
@@ -33,187 +130,7 @@ def extract_text_from_pdf(uploaded_file) -> str:
         raise ValueError("Impossibile leggere il PDF caricato.") from exc
 
     extracted_parts = []
-    for page in reader.pages:
-        try:
-            text = page.extract_text() or ""
-        except Exception:  # pragma: no cover - PyPDF2 error paths
-            text = ""
-        text = text.strip()
-        if text:
-            extracted_parts.append(text)
-
-    combined = "\n\n".join(extracted_parts).strip()
-
-    if not combined:
-        raise ValueError("Non sono riuscito a estrarre testo dal PDF caricato.")
-
-    return combined
-
-
-def _parse_questions_json(text: str, num_questions: int):
-    """
-    Parsa il testo restituito da Gemini e ne estrae la lista di domande.
-    Ritorna una lista di dict: {text, qtype, options, answer}.
-    """
-
-    # Togli eventuali ```json ... ``` / ``` ... ```
-    text = text.strip()
-    if "```" in text:
-        parts = text.split("```")
-        candidate = None
-        for p in parts:
-            if "{" in p and "}" in p:
-                candidate = p
-                break
-        if candidate:
-            text = candidate.strip()
-
-    # Prendo dal primo "{" all'ultima "}"
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or start > end:
-        raise RuntimeError(f"Non trovo JSON valido nella risposta del modello:\n{text[:500]}")
-
-    json_str = text[start : end + 1]
-
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"JSON di Gemini non valido: {e}\n\nContenuto:\n{json_str[:500]}")
-
-    if not isinstance(data, dict) or "questions" not in data:
-        raise RuntimeError(f"Struttura JSON inattesa: manca 'questions':\n{data}")
-
-    raw_questions = data.get("questions", [])
-    if not isinstance(raw_questions, list):
-        raise RuntimeError("Il campo 'questions' non è una lista.")
-
-    questions = []
-    for item in raw_questions:
-        if not isinstance(item, dict):
-            continue
-
-        text_q = str(item.get("text", "")).strip()
-        qtype = str(item.get("qtype", "")).strip().lower()
-        options = item.get("options", None)
-        answer = str(item.get("answer", "")).strip()
-
-        if not text_q or qtype not in {"mcq", "open"} or not answer:
-            continue
-
-        if qtype == "mcq":
-            if not isinstance(options, list):
-                continue
-            cleaned_options = [str(o).strip() for o in options if str(o).strip()]
-            if len(cleaned_options) < 2:
-                continue
-            # risposta deve essere una delle opzioni
-            if answer not in cleaned_options:
-                lowered = [o.lower() for o in cleaned_options]
-                if answer.lower() in lowered:
-                    answer = cleaned_options[lowered.index(answer.lower())]
-                else:
-                    continue
-            options = cleaned_options
-        else:  # qtype == "open"
-            options = None
-            # risposta di una sola parola
-            answer = answer.split()[0]
-
-        questions.append(
-            {
-                "text": text_q,
-                "qtype": qtype,
-                "options": options,
-                "answer": answer,
-            }
-        )
-
-    if not questions:
-        raise RuntimeError("Nessuna domanda valida generata dal modello.")
-
-    # Tronco se il modello ne ha fatte di più
-    if len(questions) > num_questions:
-        questions = questions[:num_questions]
-
-    return questions
-
-
-def generate_questions_with_gemini(program_text: str, num_questions: int):
-    """
-    Usa l'API di Gemini per generare un set di domande
-    a partire dal testo fornito.
-    Restituisce una lista di dict: {text, qtype, options, answer}.
-    """
-
-    if not GEMINI_API_KEY or GEMINI_API_KEY.startswith("INSERISCI_"):
-        raise RuntimeError(
-            "Devi impostare GEMINI_API_KEY nel codice o come variabile d'ambiente."
-        )
-
-    if num_questions <= 0:
-        raise ValueError("Il numero di domande deve essere > 0")
-
-    desired_mcq = math.ceil(num_questions * 0.5)
-    desired_open = num_questions - desired_mcq
-
-    full_prompt = textwrap.dedent(
-        """
-        Sei un generatore di quiz in italiano per studenti universitari.
-        Devi creare domande a partire dal testo fornito (contenuto del programma).
-
-        PROMPT DIDATTICO DI BASE:
-        "Questo è il contenuto del primo punto del programma che devo studiare.
-        Fai domande in modo che io sappia bene la teoria.
-        Non chiedermi formule, quelle le studio io da solo.
-        Fai quiz a risposta multipla e quiz a completamento con una sola parola."
-
-        OBIETTIVO:
-        - Genera ESATTAMENTE {num_questions} domande.
-        - Circa {desired_mcq} domande devono essere a risposta multipla (mcq).
-        - Circa {desired_open} domande devono essere a completamento con una sola parola (open).
-        - Le domande devono essere in italiano.
-        - NON fare domande con formule o calcoli, solo concetti teorici.
-
-        FORMATO DI USCITA:
-        Devi restituire ESCLUSIVAMENTE un oggetto JSON con questa struttura:
-
-        {{
-          "questions": [
-            {{
-              "text": "testo della domanda",
-              "qtype": "mcq" oppure "open",
-              "options": ["opzione 1", "opzione 2", "opzione 3", "opzione 4"] oppure null,
-              "answer": "testo della risposta corretta"
-            }},
-            ...
-          ]
-        }}
-
-        Regole:
-        - Se "qtype" è "mcq":
-          - "options" deve essere una lista di 3 o 4 stringhe.
-          - "answer" deve essere ESATTAMENTE una delle stringhe in "options".
-        - Se "qtype" è "open":
-          - "options" deve essere null.
-          - "answer" deve essere UNA sola parola (la soluzione che lo studente deve scrivere).
-        - Non aggiungere testo fuori dal JSON.
-
-        Numero di domande richieste: {num_questions}
-
-        --- INIZIO TESTO PROGRAMMA ---
-        {program_text}
-        --- FINE TESTO PROGRAMMA ---
-        """
-    ).format(
-        num_questions=num_questions,
-        desired_mcq=desired_mcq,
-        desired_open=desired_open,
-        program_text=program_text,
-    )
-
-    payload = {
-        "contents": [
+@@ -217,121 +314,219 @@ def generate_questions_with_gemini(program_text: str, num_questions: int):
             {
                 "parts": [
                     {"text": full_prompt.strip()}
@@ -241,11 +158,65 @@ def generate_questions_with_gemini(program_text: str, num_questions: int):
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html")
+    return render_with_history("index.html")
+
+
+@app.route("/register", methods=["POST"])
+def register():
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "").strip()
+
+    if len(username) < 3 or len(password) < 6:
+        flash("Inserisci un username (min 3 caratteri) e una password di almeno 6 caratteri.")
+        return redirect(url_for("index"))
+
+    users = _load_users()
+    if username in users:
+        flash("Questo username è già in uso. Scegline un altro.")
+        return redirect(url_for("index"))
+
+    users[username] = {
+        "password": generate_password_hash(password),
+        "history": [],
+    }
+    _save_users(users)
+    session["username"] = username
+    flash("Registrazione completata! Ora puoi generare i tuoi quiz.")
+    return redirect(url_for("index"))
+
+
+@app.route("/login", methods=["POST"])
+def login():
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "").strip()
+
+    users = _load_users()
+    user = users.get(username)
+    if not user or not check_password_hash(user.get("password", ""), password):
+        flash("Credenziali non valide. Riprova.")
+        return redirect(url_for("index"))
+
+    session["username"] = username
+    flash(f"Bentornato {username}!")
+    return redirect(url_for("index"))
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.pop("username", None)
+    session.pop("questions", None)
+    session.pop("active_history_id", None)
+    flash("Sei uscito dall'account.")
+    return redirect(url_for("index"))
 
 
 @app.route("/generate", methods=["POST"])
 def generate_quiz():
+    username = get_current_username()
+    if not username:
+        flash("Devi effettuare l'accesso per generare un quiz.")
+        return redirect(url_for("index"))
+
     program_text = request.form.get("program_text", "").strip()
     num_questions_str = request.form.get("num_questions", "").strip()
     uploaded_pdf = request.files.get("program_pdf")
@@ -282,7 +253,9 @@ def generate_quiz():
         return redirect(url_for("index"))
 
     session["questions"] = questions
-    return render_template("quiz.html", questions=questions)
+    quiz_id = store_quiz_generation(username, questions, program_text)
+    session["active_history_id"] = quiz_id
+    return render_with_history("quiz.html", questions=questions)
 
 
 @app.route("/submit", methods=["POST"])
@@ -292,42 +265,84 @@ def submit_quiz():
         flash("Nessun quiz attivo. Genera prima un quiz.")
         return redirect(url_for("index"))
 
-    # Recupero le risposte dell'utente dal form
-    user_answers = {}
-    for idx, q in enumerate(questions):
-        field_name = f"question_{idx}"
-        user_answers[idx] = request.form.get(field_name, "").strip()
-
-    results = []
-    num_correct = 0
+    details = []
+    correct = wrong = blank = 0
 
     for idx, q in enumerate(questions):
+        field_name = f"q{idx}"
+        given = (request.form.get(field_name) or "").strip()
         correct_answer = str(q.get("answer", "")).strip()
-        given = user_answers.get(idx, "")
-        # Confronto case-insensitive
-        is_correct = given.lower().strip() == correct_answer.lower().strip()
-        if is_correct:
-            num_correct += 1
 
-        results.append(
+        if not given:
+            result = "blank"
+            blank += 1
+        elif given.lower() == correct_answer.lower():
+            result = "correct"
+            correct += 1
+        else:
+            result = "wrong"
+            wrong += 1
+
+        details.append(
             {
-                "question": q,
-                "user_answer": given,
-                "is_correct": is_correct,
+                "text": q.get("text", ""),
+                "qtype": q.get("qtype", ""),
+                "options": q.get("options"),
+                "user_answer": given or None,
                 "correct_answer": correct_answer,
+                "result": result,
             }
         )
 
     total = len(questions)
-    percent = round((num_correct / total) * 100, 1) if total else 0.0
+    score_value = round(correct - wrong * 0.25, 2)
 
-    score = {
-        "total": total,
-        "correct": num_correct,
-        "percent": percent,
-    }
+    username = get_current_username()
+    quiz_id = session.get("active_history_id")
+    if username and quiz_id:
+        update_quiz_history(
+            username,
+            quiz_id,
+            {
+                "last_result": {
+                    "score": score_value,
+                    "correct": correct,
+                    "wrong": wrong,
+                    "blank": blank,
+                    "total": total,
+                    "details": details,
+                }
+            },
+        )
 
-    return render_template("results.html", results=results, score=score)
+    session.pop("questions", None)
+    session.pop("active_history_id", None)
+
+    return render_with_history(
+        "result.html",
+        score=score_value,
+        correct=correct,
+        wrong=wrong,
+        blank=blank,
+        total=total,
+        details=details,
+    )
+
+
+@app.route("/history/<quiz_id>", methods=["GET"])
+def history_detail(quiz_id):
+    username = get_current_username()
+    if not username:
+        flash("Effettua il login per consultare la tua cronologia.")
+        return redirect(url_for("index"))
+
+    history = get_user_history(username)
+    entry = next((item for item in history if item.get("id") == quiz_id), None)
+    if not entry:
+        flash("Quiz non trovato nella tua cronologia.")
+        return redirect(url_for("index"))
+
+    return render_with_history("history_detail.html", entry=entry)
 
 
 if __name__ == "__main__":
