@@ -40,7 +40,7 @@ def generate_questions_with_gemini(program_text: str, num_questions: int):
     desired_open = num_questions - desired_mcq
 
     full_prompt = f"""
-Sei un generatore di quiz di fisica in italiano per studenti universitari.
+Sei un generatore di quiz in italiano per studenti universitari.
 Devi creare domande a partire dal testo fornito (contenuto del programma).
 
 PROMPT DIDATTICO DI BASE:
@@ -267,3 +267,4 @@ def submit_quiz():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
