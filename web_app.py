@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import textwrap
 import requests
 from PyPDF2 import PdfReader
 from flask import Flask, request, render_template, redirect, url_for, session, flash
@@ -71,14 +72,86 @@ def generate_questions_with_gemini(program_text: str, num_questions: int):
     desired_mcq = math.ceil(num_questions * 0.5)
     desired_open = num_questions - desired_mcq
 
-    full_prompt = f"""
-Sei un generatore di quiz in italiano per studenti universitari.
-Devi creare domande a partire dal testo fornito (contenuto del programma).
+    full_prompt = textwrap.dedent(
+        """
+        Sei un generatore di quiz in italiano per studenti universitari.
+        Devi creare domande a partire dal testo fornito (contenuto del programma).
 
-PROMPT DIDATTICO DI BASE:
-"Questo è il contenuto del primo punto del programma che devo studiare.
-Fai domande in modo che io sappia bene la teoria.
-@@ -150,57 +182,69 @@ Numero di domande richieste: {num_questions}
+        PROMPT DIDATTICO DI BASE:
+        "Questo è il contenuto del primo punto del programma che devo studiare.
+        Fai domande in modo che io sappia bene la teoria.
+        Non chiedermi formule, quelle le studio io da solo.
+        Fai quiz a risposta multipla e quiz a completamento con una sola parola."
+
+        OBIETTIVO:
+        - Genera ESATTAMENTE {num_questions} domande.
+        - Circa {desired_mcq} domande devono essere a risposta multipla (mcq).
+        - Circa {desired_open} domande devono essere a completamento con una sola parola (open).
+        - Le domande devono essere in italiano.
+        - NON fare domande con formule o calcoli, solo concetti teorici.
+
+        FORMATO DI USCITA:
+        Devi restituire ESCLUSIVAMENTE un oggetto JSON con questa struttura:
+
+        {{
+          "questions": [
+            {{
+              "text": "testo della domanda",
+              "qtype": "mcq" oppure "open",
+              "options": ["opzione 1", "opzione 2", "opzione 3", "opzione 4"] oppure null,
+              "answer": "testo della risposta corretta"
+            }},
+            ...
+          ]
+        }}
+
+        Regole:
+        - Se "qtype" è "mcq":
+          - "options" deve essere una lista di 3 o 4 stringhe.
+          - "answer" deve essere ESATTAMENTE una delle stringhe in "options".
+        - Se "qtype" è "open":
+          - "options" deve essere null.
+          - "answer" deve essere UNA sola parola (la soluzione che lo studente deve scrivere).
+        - Non aggiungere testo fuori dal JSON.
+
+        Numero di domande richieste: {num_questions}
+
+        --- INIZIO TESTO PROGRAMMA ---
+        {program_text}
+        --- FINE TESTO PROGRAMMA ---
+        """
+    ).format(
+        num_questions=num_questions,
+        desired_mcq=desired_mcq,
+        desired_open=desired_open,
+        program_text=program_text,
+    )
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": full_prompt.strip()}
+                ]
+            }
+        ]
+    }
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    resp = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=240)
+    resp.raise_for_status()
+    data = resp.json()
+
+
+    try:
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError) as e:
+        raise RuntimeError(f"Risposta di Gemini inattesa: {e}\n\n{data}")
+
+@@ -150,57 +190,69 @@ Numero di domande richieste: {num_questions}
             {
                 "text": text_q,
                 "qtype": qtype,
