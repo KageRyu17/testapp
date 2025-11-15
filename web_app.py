@@ -2,34 +2,34 @@ import os
 import json
 import math
 import requests
-from flask import Flask, request, render_template_string, redirect, url_for, session, flash
-
+from flask import Flask, request, render_template, redirect, url_for, session, flash
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_API_KEY")
+app.secret_key = os.environ.get("SECRET_API_KEY") 
 
 
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "INSERISCI_LA_TUA_GEMINI_API_KEY_QUI")
 
-
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 GEMINI_MODEL = "gemini-2.0-flash"
 
 
-
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+GEMINI_URL = (
+    f"https://generativelanguage.googleapis.com/v1beta/models/"
+    f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+)
 
 
 def generate_questions_with_gemini(program_text: str, num_questions: int):
     """
     Usa l'API di Gemini per generare un set di domande
-    a partire dal testo del programma incollato dall'utente.
-    Restituisce una lista di dict con chiavi: text, qtype, options, answer.
+    a partire dal testo incollato dall’utente.
+    Restituisce una lista di dict: {text, qtype, options, answer}.
     """
 
     if not GEMINI_API_KEY or GEMINI_API_KEY.startswith("INSERISCI_"):
         raise RuntimeError(
-            "Devi impostare la GEMINI_API_KEY nel codice o come variabile d'ambiente."
+            "Devi impostare GEMINI_API_KEY nel codice o come variabile d'ambiente."
         )
 
     if num_questions <= 0:
@@ -105,7 +105,7 @@ Numero di domande richieste: {num_questions}
     resp.raise_for_status()
     data = resp.json()
 
-    # Estrai il testo generato da Gemini
+
     try:
         text = data["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError) as e:
@@ -113,11 +113,11 @@ Numero di domande richieste: {num_questions}
 
     text = text.strip()
 
-   
+
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        # fallback: estrai solo il blocco tra { e }
+
         start = text.find("{")
         end = text.rfind("}")
         if start == -1 or end == -1 or end <= start:
@@ -166,162 +166,9 @@ Numero di domande richieste: {num_questions}
 
 
 
-INDEX_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8">
-  <title>Generatore Quiz Fisica (Gemini)</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    textarea { width: 100%; }
-    .container { max-width: 900px; margin: auto; }
-    .field { margin-bottom: 15px; }
-    label { font-weight: bold; }
-    input[type="number"] { width: 80px; }
-    .error { color: red; }
-  </style>
-</head>
-<body>
-<div class="container">
-  <h1>Generatore Quiz Fisica – Onde &amp; Acustica (Gemini)</h1>
-  {% with messages = get_flashed_messages() %}
-    {% if messages %}
-      <ul class="error">
-      {% for msg in messages %}
-        <li>{{ msg }}</li>
-      {% endfor %}
-      </ul>
-    {% endif %}
-  {% endwith %}
-
-  <form method="post" action="{{ url_for('generate_quiz') }}">
-    <div class="field">
-      <label for="program_text">Contenuto del programma (testo da studiare):</label><br>
-      <textarea id="program_text" name="program_text" rows="15" required></textarea>
-    </div>
-    <div class="field">
-      <label for="num_questions">Numero di domande:</label>
-      <input type="number" id="num_questions" name="num_questions" value="31" min="1" max="50" required>
-      <small>(circa 2/3 a scelta multipla, 1/3 a completamento)</small>
-    </div>
-    <button type="submit">Genera quiz</button>
-  </form>
-</div>
-</body>
-</html>
-"""
-
-QUIZ_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8">
-  <title>Quiz Fisica – Domande</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .container { max-width: 900px; margin: auto; }
-    .question { margin-bottom: 20px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
-    .q-text { font-weight: bold; margin-bottom: 5px; }
-    .options { margin-left: 15px; }
-    .options label { display: block; }
-    input[type="text"] { width: 60%; }
-  </style>
-</head>
-<body>
-<div class="container">
-  <h1>Quiz Fisica – Domande</h1>
-  <form method="post" action="{{ url_for('submit_quiz') }}">
-    {% for q in questions %}
-      {% set qi = loop.index0 %}
-      <div class="question">
-        <div class="q-text">Domanda {{ loop.index }}:</div>
-        <div>{{ q.text }}</div>
-        <div class="options">
-          {% if q.qtype == "mcq" %}
-            {% for opt in q.options %}
-              <label>
-                <input type="radio" name="q{{ qi }}" value="{{ opt }}">
-                {{ opt }}
-              </label>
-            {% endfor %}
-          {% else %}
-            <input type="text" name="q{{ qi }}" placeholder="Risposta (una sola parola)">
-          {% endif %}
-        </div>
-      </div>
-    {% endfor %}
-    <button type="submit">Invia risposte e calcola punteggio</button>
-  </form>
-</div>
-</body>
-</html>
-"""
-
-
-RESULT_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8">
-  <title>Risultato Quiz</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .container { max-width: 900px; margin: auto; }
-    .summary { margin-bottom: 20px; }
-    .correct { color: green; }
-    .wrong { color: red; }
-    .blank { color: gray; }
-    .question { margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
-  </style>
-</head>
-<body>
-<div class="container">
-  <h1>Risultato Quiz</h1>
-  <div class="summary">
-    <p>Domande totali: {{ total }}</p>
-    <p class="correct">Corrette: {{ correct }}</p>
-    <p class="wrong">Sbagliate: {{ wrong }}</p>
-    <p class="blank">Non risposte: {{ blank }}</p>
-    <h2>Punteggio finale: {{ score }}</h2>
-  </div>
-
-  <h3>Dettaglio domande</h3>
-  {% for item in details %}
-    <div class="question">
-      <div><strong>Domanda {{ loop.index }}:</strong> {{ item.text }}</div>
-      <div>Tua risposta:
-        {% if item.user_answer is none %}
-          <span class="blank">Non data</span>
-        {% else %}
-          {{ item.user_answer }}
-        {% endif %}
-      </div>
-      <div>Risposta corretta: <strong>{{ item.correct_answer }}</strong></div>
-      <div>
-        Esito:
-        {% if item.result == "correct" %}
-          <span class="correct">Corretta (+1)</span>
-        {% elif item.result == "wrong" %}
-          <span class="wrong">Sbagliata (-0.25)</span>
-        {% else %}
-          <span class="blank">Non data (0)</span>
-        {% endif %}
-      </div>
-    </div>
-  {% endfor %}
-
-  <p><a href="{{ url_for('index') }}">Torna alla pagina iniziale</a></p>
-</div>
-</body>
-</html>
-"""
-
-
-
 @app.route("/", methods=["GET"])
 def index():
-    return render_template_string(INDEX_TEMPLATE)
+    return render_template("index.html")
 
 
 @app.route("/generate", methods=["POST"])
@@ -349,7 +196,7 @@ def generate_quiz():
         return redirect(url_for("index"))
 
     session["questions"] = questions
-    return render_template_string(QUIZ_TEMPLATE, questions=questions)
+    return render_template("quiz.html", questions=questions)
 
 
 @app.route("/submit", methods=["POST"])
@@ -407,8 +254,8 @@ def submit_quiz():
 
     session.pop("questions", None)
 
-    return render_template_string(
-        RESULT_TEMPLATE,
+    return render_template(
+        "result.html",
         total=total,
         correct=correct,
         wrong=wrong,
@@ -420,4 +267,3 @@ def submit_quiz():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
-
