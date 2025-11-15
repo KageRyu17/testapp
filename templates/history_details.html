@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Cronologia quiz{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h2>Dettaglio quiz salvato</h2>
+  <p class="card-intro">
+    Creato il {{ entry.created_at }} · {{ entry.num_questions }} domande
+  </p>
+
+  {% if entry.last_result %}
+    <div class="score-summary">
+      <div class="score-main">
+        <div class="score-label">Ultimo punteggio</div>
+        <div class="score-value">{{ entry.last_result.score }}</div>
+      </div>
+      <div class="score-details">
+        <span class="badge total">Domande: {{ entry.last_result.total }}</span>
+        <span class="badge correct">Corrette: {{ entry.last_result.correct }}</span>
+        <span class="badge wrong">Sbagliate: {{ entry.last_result.wrong }}</span>
+        <span class="badge blank">Vuote: {{ entry.last_result.blank }}</span>
+      </div>
+    </div>
+  {% else %}
+    <p class="helper-text">Non hai ancora completato questo quiz.</p>
+  {% endif %}
+
+  <h3>Domande generate</h3>
+  <div class="questions-list">
+    {% for question in entry.questions %}
+      <div class="question-block compact">
+        <div class="question-header">
+          <span class="question-number">Domanda {{ loop.index }}</span>
+          <span class="question-type">
+            {% if question.qtype == "mcq" %}
+              Scelta multipla
+            {% else %}
+              Completamento
+            {% endif %}
+          </span>
+        </div>
+        <div class="question-text">{{ question.text }}</div>
+        {% if question.qtype == "mcq" %}
+          <ul class="history-options">
+            {% for opt in question.options %}
+              <li>{{ opt }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        <div class="question-body">
+          <strong>Risposta corretta:</strong> {{ question.answer }}
+          {% if entry.last_result and entry.last_result.details and loop.index0 < entry.last_result.details|length %}
+            {% set detail = entry.last_result.details[loop.index0] %}
+            <div>
+              <strong>Tua risposta:</strong>
+              {% if detail.user_answer %}
+                {{ detail.user_answer }}
+              {% else %}
+                <span class="badge blank">Non data</span>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <a href="{{ url_for('index') }}" class="btn secondary">Torna alla home</a>
+</div>
+{% endblock %}
