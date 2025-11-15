@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Generatore Quiz – Input{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h2>Genera un nuovo quiz</h2>
+  <p class="card-intro">
+    Incolla qui il contenuto del programma (testo, appunti, slide) e scegli quante domande vuoi.
+    Il sistema genererà automaticamente domande teoriche, senza formule.
+  </p>
+
+  <form method="post" action="{{ url_for('generate_quiz') }}" class="form">
+    <div class="form-group">
+      <label for="program_text">Contenuto del programma</label>
+      <textarea id="program_text" name="program_text" rows="12" required
+        placeholder="Incolla qui il testo sul punto del programma (onde meccaniche, acustiche, ecc.)"></textarea>
+    </div>
+
+    <div class="form-group inline-group">
+      <div>
+        <label for="num_questions">Numero di domande</label>
+        <input
+          type="number"
+          id="num_questions"
+          name="num_questions"
+          value="31"
+          min="1"
+          max="50"
+          required
+        />
+      </div>
+      <div class="helper-text">
+        Circa 2/3 saranno a scelta multipla, 1/3 a completamento (una sola parola).
+      </div>
+    </div>
+
+    <button type="submit" class="btn primary">Genera quiz</button>
+  </form>
+</div>
+{% endblock %}
