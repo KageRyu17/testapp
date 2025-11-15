@@ -2,7 +2,7 @@ import os
 import json
 import math
 import textwrap
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import requests
@@ -27,6 +27,10 @@ USERS_FILE = os.path.join(DATA_DIR, "users.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
+
+# ============================
+#   UTENTI & STORAGE
+# ============================
 
 def _load_users():
     if not os.path.exists(USERS_FILE):
@@ -62,6 +66,7 @@ def get_user_history(username):
 
 
 def store_quiz_generation(username, questions, program_text):
+    """Salva un nuovo quiz generato nella cronologia dell'utente."""
     users = _load_users()
     user = users.get(username)
     if not user:
@@ -72,7 +77,7 @@ def store_quiz_generation(username, questions, program_text):
     preview = " ".join(program_text.split())[:160]
     history_entry = {
         "id": entry_id,
-        "created_at": datetime.utcnow().isoformat(timespec="seconds"),
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "num_questions": len(questions),
         "preview": preview,
         "questions": questions,
@@ -84,6 +89,7 @@ def store_quiz_generation(username, questions, program_text):
 
 
 def update_quiz_history(username, quiz_id, payload):
+    """Aggiorna un quiz esistente nella cronologia (ad es. con l'ultimo risultato)."""
     users = _load_users()
     user = users.get(username)
     if not user:
@@ -97,6 +103,7 @@ def update_quiz_history(username, quiz_id, payload):
 
 
 def render_with_history(template_name, **context):
+    """Renderizza un template includendo automaticamente la cronologia dell'utente loggato."""
     username = get_current_username()
     context.setdefault("history", get_user_history(username))
     return render_template(template_name, **context)
@@ -104,9 +111,14 @@ def render_with_history(template_name, **context):
 
 @app.context_processor
 def inject_user():
+    """Rende current_user disponibile in tutti i template."""
     return {"current_user": get_current_username()}
 
-# Chiave e modello Gemini
+
+# ============================
+#   GEMINI CONFIG
+# ============================
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "INSERISCI_LA_TUA_GEMINI_API_KEY_QUI")
 GEMINI_MODEL = "gemini-2.0-flash"
 
@@ -116,9 +128,12 @@ GEMINI_URL = (
 )
 
 
+# ============================
+#   UTILS
+# ============================
+
 def extract_text_from_pdf(uploaded_file) -> str:
     """Estrae il testo dal PDF caricato."""
-
     if not uploaded_file:
         raise ValueError("Nessun file PDF ricevuto.")
 
@@ -130,7 +145,121 @@ def extract_text_from_pdf(uploaded_file) -> str:
         raise ValueError("Impossibile leggere il PDF caricato.") from exc
 
     extracted_parts = []
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        extracted_parts.append(text)
 
+    return "\n".join(extracted_parts).strip()
+
+
+def _parse_questions_json(gemini_text: str, num_questions: int):
+    """
+    Prova a estrarre una lista JSON di domande dal testo restituito da Gemini.
+    È robusto a testo extra, markdown, ecc.
+    """
+    start = gemini_text.find("[")
+    end = gemini_text.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError(
+            f"Output di Gemini non contiene una lista JSON valida:\n{gemini_text}"
+        )
+
+    json_str = gemini_text[start : end + 1]
+
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Impossibile decodificare il JSON generato da Gemini: {e}\n\nTesto:\n{gemini_text}"
+        )
+
+    if not isinstance(data, list):
+        raise ValueError("Il JSON generato da Gemini non è una lista di domande.")
+
+    questions = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+
+        text_ = item.get("text") or ""
+        qtype_raw = (item.get("qtype") or "open").lower().strip()
+        options = item.get("options")
+        answer = (item.get("answer") or "").strip()
+
+        if qtype_raw == "mcq":
+            qtype = "mcq"
+            # assicuriamoci che options sia una lista o None
+            if not isinstance(options, list):
+                options = None
+        else:
+            qtype = "open"
+            options = None
+
+        questions.append(
+            {
+                "text": text_,
+                "qtype": qtype,     # "mcq" oppure "open"
+                "options": options,
+                "answer": answer,
+            }
+        )
+
+        if len(questions) >= num_questions:
+            break
+
+    if not questions:
+        raise ValueError(
+            f"Nessuna domanda valida trovata nel JSON di Gemini:\n{gemini_text}"
+        )
+
+    return questions
+
+
+def generate_questions_with_gemini(program_text: str, num_questions: int):
+    """
+    Chiede a Gemini di generare num_questions domande a partire da program_text,
+    con proporzione circa metà mcq e metà open.
+    """
+    mcq_count = num_questions // 2
+    open_count = num_questions - mcq_count
+
+    full_prompt = f"""
+Sei un generatore di quiz di fisica per uno studente delle superiori.
+Devi generare esattamente {num_questions} domande in formato JSON puro.
+
+Requisiti IMPORTANTI:
+
+- Totale domande: {num_questions}
+- Domande a scelta multipla (mcq): circa {mcq_count}
+- Domande a completamento (open, risposta breve UNA o poche parole): circa {open_count}
+- Le domande devono essere solo teoriche (niente formule complesse o calcoli lunghi).
+
+La risposta DEVE essere ESCLUSIVAMENTE un JSON valido, SENZA testo aggiuntivo, SENZA markdown.
+
+Formato obbligatorio:
+
+[
+  {{
+    "text": "testo della domanda",
+    "qtype": "open" oppure "mcq",
+    "options": ["opzione1", "opzione2", "opzione3", "opzione4"] oppure null,
+    "answer": "risposta corretta (stringa, una parola o breve frase)"
+  }},
+  ...
+]
+
+Regole:
+- Se qtype è "open", imposta "options": null e fai in modo che la risposta sia molto breve (una parola o pochissime parole).
+- Se qtype è "mcq", fornisci da 3 a 5 opzioni nel campo "options" e imposta "answer" uguale esattamente a una delle opzioni.
+- NON aggiungere commenti, spiegazioni o testo fuori dal JSON.
+
+Testo di partenza su cui basare le domande:
+
+{program_text}
+"""
+
+    payload = {
+        "contents": [
             {
                 "parts": [
                     {"text": full_prompt.strip()}
@@ -155,6 +284,10 @@ def extract_text_from_pdf(uploaded_file) -> str:
     questions = _parse_questions_json(gemini_text, num_questions)
     return questions
 
+
+# ============================
+#   ROUTES
+# ============================
 
 @app.route("/", methods=["GET"])
 def index():
@@ -251,6 +384,29 @@ def generate_quiz():
     except Exception as e:
         flash(f"Errore nella generazione delle domande: {e}")
         return redirect(url_for("index"))
+
+    # Assicuriamoci di avere al massimo num_questions domande
+    if len(questions) > num_questions:
+        questions = questions[:num_questions]
+
+    # ============================
+    #  ORDINE & PROPORZIONE 1/2
+    # ============================
+    target_mcq = num_questions // 2
+    target_open = num_questions - target_mcq
+
+    mcq_q = [q for q in questions if q.get("qtype") == "mcq"]
+    open_q = [q for q in questions if q.get("qtype") != "mcq"]
+
+    if len(mcq_q) >= target_mcq and len(open_q) >= target_open:
+        mcq_part = mcq_q[:target_mcq]
+        open_part = open_q[:target_open]
+        questions = mcq_part + open_part
+    else:
+        # Fallback: comunque prima tutte le mcq, poi le open
+        questions = mcq_q + open_q
+        if len(questions) > num_questions:
+            questions = questions[:num_questions]
 
     session["questions"] = questions
     quiz_id = store_quiz_generation(username, questions, program_text)
@@ -350,4 +506,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"Starting Flask app on port {port}...")
     app.run(host="0.0.0.0", port=port, debug=False)
-
