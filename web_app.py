@@ -151,7 +151,7 @@ def generate_questions_with_gemini(program_text: str, num_questions: int):
     except (KeyError, IndexError) as e:
         raise RuntimeError(f"Risposta di Gemini inattesa: {e}\n\n{data}")
 
-@@ -150,57 +190,69 @@ Numero di domande richieste: {num_questions}
+
             {
                 "text": text_q,
                 "qtype": qtype,
@@ -221,3 +221,4 @@ def submit_quiz():
     questions = session.get("questions")
     if not questions:
         flash("Nessun quiz attivo. Genera prima un quiz.")
+
