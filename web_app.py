@@ -227,7 +227,7 @@ def submit_quiz():
                     correct += 1
                     result = "correct"
                 else:
-                    score -= 0.25
+                    score -= 0.1
                     wrong += 1
                     result = "wrong"
             else:  # open
@@ -236,7 +236,7 @@ def submit_quiz():
                     correct += 1
                     result = "correct"
                 else:
-                    score -= 0.25
+                    score -= 0.1
                     wrong += 1
                     result = "wrong"
 
@@ -267,5 +267,6 @@ def submit_quiz():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
 
 
