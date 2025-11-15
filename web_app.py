@@ -2,6 +2,7 @@ import os
 import json
 import math
 import requests
+from PyPDF2 import PdfReader
 from flask import Flask, request, render_template, redirect, url_for, session, flash
 
 app = Flask(__name__)
@@ -18,6 +19,37 @@ GEMINI_URL = (
     f"https://generativelanguage.googleapis.com/v1beta/models/"
     f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
 )
+
+
+def extract_text_from_pdf(uploaded_file) -> str:
+    """Estrae il testo dal PDF caricato."""
+
+    if not uploaded_file:
+        raise ValueError("Nessun file PDF ricevuto.")
+
+    uploaded_file.stream.seek(0)
+
+    try:
+        reader = PdfReader(uploaded_file.stream)
+    except Exception as exc:  # pragma: no cover - PyPDF2 error paths
+        raise ValueError("Impossibile leggere il PDF caricato.") from exc
+
+    extracted_parts = []
+    for page in reader.pages:
+        try:
+            text = page.extract_text() or ""
+        except Exception:  # pragma: no cover - PyPDF2 error paths
+            text = ""
+        text = text.strip()
+        if text:
+            extracted_parts.append(text)
+
+    combined = "\n\n".join(extracted_parts).strip()
+
+    if not combined:
+        raise ValueError("Non sono riuscito a estrarre testo dal PDF caricato.")
+
+    return combined
 
 
 def generate_questions_with_gemini(program_text: str, num_questions: int):
@@ -175,9 +207,21 @@ def index():
 def generate_quiz():
     program_text = request.form.get("program_text", "").strip()
     num_questions_str = request.form.get("num_questions", "").strip()
+    uploaded_pdf = request.files.get("program_pdf")
+
+    if uploaded_pdf and uploaded_pdf.filename:
+        if not uploaded_pdf.filename.lower().endswith(".pdf"):
+            flash("Carica un file PDF valido.")
+            return redirect(url_for("index"))
+
+        try:
+            program_text = extract_text_from_pdf(uploaded_pdf)
+        except ValueError as exc:
+            flash(str(exc))
+            return redirect(url_for("index"))
 
     if not program_text:
-        flash("Devi incollare il contenuto del programma.")
+        flash("Devi incollare il programma o caricare un PDF.")
         return redirect(url_for("index"))
 
     if not num_questions_str.isdigit():

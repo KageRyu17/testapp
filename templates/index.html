@@ -10,11 +10,17 @@
     Il sistema genererà automaticamente domande teoriche, senza formule.
   </p>
 
-  <form method="post" action="{{ url_for('generate_quiz') }}" class="form">
+  <form method="post" action="{{ url_for('generate_quiz') }}" class="form" enctype="multipart/form-data">
     <div class="form-group">
       <label for="program_text">Contenuto del programma</label>
-      <textarea id="program_text" name="program_text" rows="12" required
+      <textarea id="program_text" name="program_text" rows="12"
         placeholder="Incolla qui il testo sul punto del programma (onde meccaniche, acustiche, ecc.)"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label for="program_pdf">Oppure carica un PDF</label>
+      <input type="file" id="program_pdf" name="program_pdf" accept="application/pdf" />
+      <p class="helper-text">Estrarremo automaticamente il testo del programma dal PDF.</p>
     </div>
 
     <div class="form-group inline-group">
