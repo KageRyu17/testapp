@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <title>{% block title %}Quiz Fisica{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="theme-dark">
+  <div class="page">
+    <header class="site-header">
+      <div class="site-header-inner">
+        <div>
+          <h1 class="site-title">Quiz Fisica – Onde &amp; Acustica</h1>
+          <p class="site-subtitle">Generatore di quiz automatico dal tuo programma di studio</p>
+        </div>
+        <button type="button" class="theme-toggle" onclick="toggleTheme()">
+          Tema chiaro/scuro
+        </button>
+      </div>
+    </header>
+
+    <main class="site-main">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="flash-container">
+            {% for msg in messages %}
+              <div class="flash-message">{{ msg }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+      <p>Progetto personale – usa Gemini API</p>
+    </footer>
+  </div>
+
+  <script>
+    // Theme toggle con localStorage
+    function applySavedTheme() {
+      const saved = localStorage.getItem("quiz_theme");
+      const body = document.body;
+      if (saved === "light") {
+        body.classList.remove("theme-dark");
+        body.classList.add("theme-light");
+      } else {
+        body.classList.remove("theme-light");
+        body.classList.add("theme-dark");
+      }
+    }
+
+    function toggleTheme() {
+      const body = document.body;
+      if (body.classList.contains("theme-dark")) {
+        body.classList.remove("theme-dark");
+        body.classList.add("theme-light");
+        localStorage.setItem("quiz_theme", "light");
+      } else {
+        body.classList.remove("theme-light");
+        body.classList.add("theme-dark");
+        localStorage.setItem("quiz_theme", "dark");
+      }
+    }
+
+    applySavedTheme();
+  </script>
+</body>
+</html>
