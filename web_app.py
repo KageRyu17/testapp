@@ -6,7 +6,7 @@ from flask import Flask, request, render_template_string, redirect, url_for, ses
 
 
 app = Flask(__name__)
-app.secret_key = "314a159d265a358m932k"  
+app.secret_key = os.environ.get("SECRET_API_KEY")
 
 
 
@@ -420,3 +420,4 @@ def submit_quiz():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
