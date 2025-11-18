@@ -3,3 +3,4 @@ google-generativeai
 gunicorn
 jinja2
 requests
+flask-sqlalchemy
