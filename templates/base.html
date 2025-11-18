@@ -7,7 +7,11 @@
 </head>
 <body class="theme-dark">
   
-  <canvas id="backgroundCanvas"></canvas>
+  <div id="glitch-container">
+      <canvas id="glitchCanvas"></canvas>
+      <div class="glitch-vignette-outer"></div>
+      <div class="glitch-vignette-center"></div>
+  </div>
 
   <div class="page">
     <header class="site-header">
@@ -69,117 +73,179 @@
     }
     applySavedTheme();
 
-    // --- FLOATING LINES ANIMATION (Vanilla JS Port) ---
+    // --- LETTER GLITCH ANIMATION (Vanilla JS Port) ---
     (function() {
-        const canvas = document.getElementById('backgroundCanvas');
-        const ctx = canvas.getContext('2d');
-        
-        let width, height;
-        let lines = [];
-        
-        // Configurazione dell'effetto
+        const canvas = document.getElementById('glitchCanvas');
+        const context = canvas.getContext('2d');
+        const container = document.getElementById('glitch-container');
+
+        // CONFIGURAZIONE (uguale al codice React)
         const config = {
-            lineCount: 40,       // Numero di linee
-            minSpeed: 0.2,       // Velocità minima
-            maxSpeed: 1.5,       // Velocità massima
-            minWidth: 1,         // Spessore minimo
-            maxWidth: 3,         // Spessore massimo
-            colors: [            // Palette colori (toni blu/verdi/viola eleganti)
-                '#3b82f6', '#10b981', '#8b5cf6', '#06b6d4', '#6366f1'
-            ]
+            glitchSpeed: 50,
+            colors: ['#2b4539', '#61dca3', '#61b3dc'], // Colori originali
+            chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$&*()-_+=/[]{};:<>.,0123456789',
+            fontSize: 16,
+            charWidth: 10,
+            charHeight: 20,
+            smooth: true
         };
 
-        class Line {
-            constructor() {
-                this.init();
-            }
+        let letters = [];
+        let grid = { columns: 0, rows: 0 };
+        let lastGlitchTime = Date.now();
+        let animationFrameId;
+        let resizeTimeout;
 
-            init(firstRun = false) {
-                // Posizione X casuale
-                this.x = Math.random() * width;
-                
-                // Se è il primo avvio, distribuisci le linee su tutto lo schermo verticalmente
-                // Altrimenti, falle partire da sotto lo schermo
-                if (firstRun) {
-                    this.y = Math.random() * height;
-                } else {
-                    this.y = height + Math.random() * 200; // Parte sotto
-                }
+        // Helper Functions
+        const getRandomChar = () => config.chars[Math.floor(Math.random() * config.chars.length)];
+        const getRandomColor = () => config.colors[Math.floor(Math.random() * config.colors.length)];
 
-                // Lunghezza casuale della linea
-                this.length = Math.random() * 150 + 50; 
-                
-                // Velocità casuale
-                this.speed = Math.random() * (config.maxSpeed - config.minSpeed) + config.minSpeed;
-                
-                // Spessore
-                this.width = Math.random() * (config.maxWidth - config.minWidth) + config.minWidth;
-                
-                // Colore casuale dalla palette
-                this.color = config.colors[Math.floor(Math.random() * config.colors.length)];
-                
-                // Opacità casuale
-                this.opacity = Math.random() * 0.5 + 0.1;
-            }
+        const hexToRgb = (hex) => {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        };
 
-            draw() {
-                // Adatta l'opacità al tema (più trasparenti in light mode per non disturbare)
-                const isDark = document.body.classList.contains('theme-dark');
-                const finalOpacity = isDark ? this.opacity : this.opacity * 0.6;
+        const interpolateColor = (start, end, factor) => {
+            const result = {
+                r: Math.round(start.r + (end.r - start.r) * factor),
+                g: Math.round(start.g + (end.g - start.g) * factor),
+                b: Math.round(start.b + (end.b - start.b) * factor)
+            };
+            return `rgb(${result.r}, ${result.g}, ${result.b})`;
+        };
 
-                ctx.globalAlpha = finalOpacity;
-                ctx.fillStyle = this.color;
-                
-                // Disegna la linea
-                ctx.fillRect(this.x, this.y, this.width, this.length);
-                ctx.globalAlpha = 1.0; // Reset opacità
-            }
+        // Core Logic
+        const calculateGrid = (width, height) => {
+            const columns = Math.ceil(width / config.charWidth);
+            const rows = Math.ceil(height / config.charHeight);
+            return { columns, rows };
+        };
 
-            update() {
-                this.y -= this.speed; // Muove verso l'alto
+        const initializeLetters = (columns, rows) => {
+            grid = { columns, rows };
+            const totalLetters = columns * rows;
+            letters = Array.from({ length: totalLetters }, () => ({
+                char: getRandomChar(),
+                color: getRandomColor(),
+                targetColor: getRandomColor(),
+                colorProgress: 1
+            }));
+        };
 
-                // Se la linea è uscita completamente dallo schermo in alto
-                if (this.y + this.length < 0) {
-                    this.init(); // Ricicla la linea riposizionandola sotto
-                }
-            }
-        }
+        const resizeCanvas = () => {
+            const rect = container.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
 
-        function resize() {
-            width = canvas.width = window.innerWidth;
-            height = canvas.height = window.innerHeight;
-        }
-
-        function initLines() {
-            lines = [];
-            for (let i = 0; i < config.lineCount; i++) {
-                const line = new Line();
-                line.init(true); // true = distribuisci inizialmente sullo schermo
-                lines.push(line);
-            }
-        }
-
-        function animate() {
-            // Pulisce il canvas (il colore di fondo è gestito dal CSS)
-            ctx.clearRect(0, 0, width, height);
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
             
-            for (let line of lines) {
-                line.draw();
-                line.update();
+            // Importante per la nitidezza su schermi retina
+            context.scale(dpr, dpr);
+
+            canvas.style.width = `${rect.width}px`;
+            canvas.style.height = `${rect.height}px`;
+
+            const { columns, rows } = calculateGrid(rect.width, rect.height);
+            initializeLetters(columns, rows);
+            drawLetters();
+        };
+
+        const drawLetters = () => {
+            const { width, height } = container.getBoundingClientRect();
+            context.clearRect(0, 0, width, height);
+            context.font = `${config.fontSize}px monospace`;
+            context.textBaseline = 'top';
+
+            letters.forEach((letter, index) => {
+                const x = (index % grid.columns) * config.charWidth;
+                const y = Math.floor(index / grid.columns) * config.charHeight;
+                
+                // Se il colore è in transizione, interpolalo, altrimenti usa hex diretto
+                context.fillStyle = letter.color.startsWith('#') ? letter.color : letter.color;
+                context.fillText(letter.char, x, y);
+            });
+        };
+
+        const updateLetters = () => {
+            const updateCount = Math.max(1, Math.floor(letters.length * 0.05)); // 5% di lettere cambiano
+
+            for (let i = 0; i < updateCount; i++) {
+                const index = Math.floor(Math.random() * letters.length);
+                if (!letters[index]) continue;
+
+                letters[index].char = getRandomChar();
+                letters[index].targetColor = getRandomColor();
+
+                if (!config.smooth) {
+                    letters[index].color = letters[index].targetColor;
+                    letters[index].colorProgress = 1;
+                } else {
+                    letters[index].colorProgress = 0;
+                }
             }
-            requestAnimationFrame(animate);
-        }
+        };
 
-        // Event Listeners
-        window.addEventListener('resize', () => {
-            resize();
-            initLines(); // Ricrea le linee se si ridimensiona la finestra
-        });
+        const handleSmoothTransitions = () => {
+            let needsRedraw = false;
+            letters.forEach(letter => {
+                if (letter.colorProgress < 1) {
+                    letter.colorProgress += 0.05;
+                    if (letter.colorProgress > 1) letter.colorProgress = 1;
 
-        // Avvio
-        resize();
-        initLines();
+                    const startRgb = hexToRgb(letter.color.startsWith('rgb') ? '#000000' : letter.color); 
+                    // Nota: startRgb è un po' complesso se è già rgb, semplifichiamo usando il target precedente
+                    // Nella versione vanilla per semplicità facciamo transizione diretta se hex
+                    
+                    const startHex = letter.color.startsWith('#') ? letter.color : letter.targetColor; 
+                    const start = hexToRgb(startHex);
+                    const end = hexToRgb(letter.targetColor);
+
+                    if (start && end) {
+                        letter.color = interpolateColor(start, end, letter.colorProgress);
+                        needsRedraw = true;
+                    }
+                }
+            });
+            
+            if (needsRedraw) {
+                drawLetters();
+            }
+        };
+
+        const animate = () => {
+            const now = Date.now();
+            
+            // Aggiorna lettere e colori target in base alla velocità
+            if (now - lastGlitchTime >= config.glitchSpeed) {
+                updateLetters();
+                drawLetters();
+                lastGlitchTime = now;
+            }
+
+            // Gestisce la sfumatura del colore frame per frame
+            if (config.smooth) {
+                handleSmoothTransitions();
+            }
+
+            animationFrameId = requestAnimationFrame(animate);
+        };
+
+        // Setup e Event Listeners
+        resizeCanvas();
         animate();
+
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                cancelAnimationFrame(animationFrameId);
+                resizeCanvas();
+                animate();
+            }, 100);
+        });
     })();
   </script>
 </body>
