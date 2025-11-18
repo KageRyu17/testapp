@@ -680,3 +680,23 @@ body.theme-dark .deck-item { background: rgba(15, 23, 42, 0.6); }
 body.theme-light .deck-item { background: rgba(255, 255, 255, 0.6); }
 
 .hidden { display: none !important; }
+
+/* --- SFONDO DOT GRID --- */
+#dotCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1; /* Manda lo sfondo dietro a tutto */
+    pointer-events: none; /* Permette di cliccare attraverso i punti */
+}
+
+/* Nascondiamo i gradienti vecchi se vogliamo vedere bene i punti */
+body.theme-dark {
+    background: #0f172a; /* Sfondo solido scuro invece del gradiente */
+}
+
+body.theme-light {
+    background: #f9fafb; /* Sfondo solido chiaro */
+}
