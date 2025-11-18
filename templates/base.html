@@ -6,11 +6,14 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body class="theme-dark">
+  
+  <canvas id="dotCanvas"></canvas>
+
   <div class="page">
     <header class="site-header">
       <div class="site-header-inner">
         <div>
-          <h1 class="site-title">Quiz per il tuo esame</h1>
+          <h1 class="site-title">Quiz Universitario AI</h1>
           <p class="site-subtitle">Creato da Adam Khiraoui</p>
         </div>
         <button type="button" class="theme-toggle" onclick="toggleTheme()">
@@ -34,12 +37,12 @@
     </main>
 
     <footer class="site-footer">
-      <p>Le domande sono create con l'AI, potrebbero non essere accurate</p>
+      <p>Powered by Google Gemini AI</p>
     </footer>
   </div>
 
   <script>
-    // Theme toggle con localStorage
+    // --- LOGICA TEMA ESISTENTE ---
     function applySavedTheme() {
       const saved = localStorage.getItem("quiz_theme");
       const body = document.body;
@@ -64,8 +67,122 @@
         localStorage.setItem("quiz_theme", "dark");
       }
     }
-
     applySavedTheme();
+
+    // --- NUOVO: SCRIPT DOT GRID ANIMATION ---
+    (function() {
+        const canvas = document.getElementById('dotCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        let dots = [];
+        
+        // Configurazione griglia
+        const spacing = 30; // Distanza tra i punti
+        const mouseRadius = 100; // Raggio d'azione del mouse
+        const mouse = { x: -1000, y: -1000 }; // Posizione iniziale fuori schermo
+
+        // Colori (si aggiorneranno nel loop)
+        let dotColor = '#3b82f6'; 
+
+        class Dot {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.baseX = x;
+                this.baseY = y;
+                this.size = 2; // Grandezza puntino
+                this.density = (Math.random() * 30) + 1;
+            }
+
+            draw() {
+                ctx.fillStyle = dotColor;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            update() {
+                // Calcola distanza dal mouse
+                let dx = mouse.x - this.x;
+                let dy = mouse.y - this.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
+                let forceDirectionX = dx / distance;
+                let forceDirectionY = dy / distance;
+                
+                // Fisica: forza di repulsione
+                let maxDistance = mouseRadius;
+                let force = (maxDistance - distance) / maxDistance;
+                let directionX = forceDirectionX * force * this.density;
+                let directionY = forceDirectionY * force * this.density;
+
+                if (distance < mouseRadius) {
+                    // Se il mouse è vicino, sposta il punto via
+                    this.x -= directionX * 5; // *5 è la velocità di repulsione
+                    this.y -= directionY * 5;
+                } else {
+                    // Altrimenti torna alla posizione originale
+                    if (this.x !== this.baseX) {
+                        let dx = this.x - this.baseX;
+                        this.x -= dx / 10; // Velocità di ritorno (più alto = più lento)
+                    }
+                    if (this.y !== this.baseY) {
+                        let dy = this.y - this.baseY;
+                        this.y -= dy / 10;
+                    }
+                }
+            }
+        }
+
+        function init() {
+            dots = [];
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+
+            // Crea la griglia di punti
+            for (let x = 0; x < width; x += spacing) {
+                for (let y = 0; y < height; y += spacing) {
+                    dots.push(new Dot(x, y));
+                }
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, width, height);
+            
+            // Controlla il tema corrente per il colore dei punti
+            if (document.body.classList.contains('theme-light')) {
+                dotColor = 'rgba(100, 116, 139, 0.4)'; // Grigio nel tema chiaro
+            } else {
+                dotColor = 'rgba(59, 130, 246, 0.4)'; // Blu nel tema scuro
+            }
+
+            for (let i = 0; i < dots.length; i++) {
+                dots[i].draw();
+                dots[i].update();
+            }
+            requestAnimationFrame(animate);
+        }
+
+        // Event Listeners
+        window.addEventListener('resize', init);
+        
+        window.addEventListener('mousemove', (event) => {
+            mouse.x = event.x;
+            mouse.y = event.y;
+        });
+        
+        // Resetta mouse quando esce dalla finestra
+        window.addEventListener('mouseout', () => {
+            mouse.x = -1000;
+            mouse.y = -1000;
+        });
+
+        // Avvio
+        init();
+        animate();
+    })();
   </script>
 </body>
 </html>
