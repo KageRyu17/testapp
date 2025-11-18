@@ -7,7 +7,7 @@
 </head>
 <body class="theme-dark">
   
-  <canvas id="dotCanvas"></canvas>
+  <canvas id="backgroundCanvas"></canvas>
 
   <div class="page">
     <header class="site-header">
@@ -42,7 +42,7 @@
   </div>
 
   <script>
-    // --- LOGICA TEMA ESISTENTE ---
+    // --- LOGICA TEMA ---
     function applySavedTheme() {
       const saved = localStorage.getItem("quiz_theme");
       const body = document.body;
@@ -69,118 +69,116 @@
     }
     applySavedTheme();
 
-    // --- NUOVO: SCRIPT DOT GRID ANIMATION ---
+    // --- FLOATING LINES ANIMATION (Vanilla JS Port) ---
     (function() {
-        const canvas = document.getElementById('dotCanvas');
+        const canvas = document.getElementById('backgroundCanvas');
         const ctx = canvas.getContext('2d');
         
         let width, height;
-        let dots = [];
+        let lines = [];
         
-        // Configurazione griglia
-        const spacing = 30; // Distanza tra i punti
-        const mouseRadius = 100; // Raggio d'azione del mouse
-        const mouse = { x: -1000, y: -1000 }; // Posizione iniziale fuori schermo
+        // Configurazione dell'effetto
+        const config = {
+            lineCount: 40,       // Numero di linee
+            minSpeed: 0.2,       // Velocità minima
+            maxSpeed: 1.5,       // Velocità massima
+            minWidth: 1,         // Spessore minimo
+            maxWidth: 3,         // Spessore massimo
+            colors: [            // Palette colori (toni blu/verdi/viola eleganti)
+                '#3b82f6', '#10b981', '#8b5cf6', '#06b6d4', '#6366f1'
+            ]
+        };
 
-        // Colori (si aggiorneranno nel loop)
-        let dotColor = '#3b82f6'; 
+        class Line {
+            constructor() {
+                this.init();
+            }
 
-        class Dot {
-            constructor(x, y) {
-                this.x = x;
-                this.y = y;
-                this.baseX = x;
-                this.baseY = y;
-                this.size = 2; // Grandezza puntino
-                this.density = (Math.random() * 30) + 1;
+            init(firstRun = false) {
+                // Posizione X casuale
+                this.x = Math.random() * width;
+                
+                // Se è il primo avvio, distribuisci le linee su tutto lo schermo verticalmente
+                // Altrimenti, falle partire da sotto lo schermo
+                if (firstRun) {
+                    this.y = Math.random() * height;
+                } else {
+                    this.y = height + Math.random() * 200; // Parte sotto
+                }
+
+                // Lunghezza casuale della linea
+                this.length = Math.random() * 150 + 50; 
+                
+                // Velocità casuale
+                this.speed = Math.random() * (config.maxSpeed - config.minSpeed) + config.minSpeed;
+                
+                // Spessore
+                this.width = Math.random() * (config.maxWidth - config.minWidth) + config.minWidth;
+                
+                // Colore casuale dalla palette
+                this.color = config.colors[Math.floor(Math.random() * config.colors.length)];
+                
+                // Opacità casuale
+                this.opacity = Math.random() * 0.5 + 0.1;
             }
 
             draw() {
-                ctx.fillStyle = dotColor;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.closePath();
-                ctx.fill();
+                // Adatta l'opacità al tema (più trasparenti in light mode per non disturbare)
+                const isDark = document.body.classList.contains('theme-dark');
+                const finalOpacity = isDark ? this.opacity : this.opacity * 0.6;
+
+                ctx.globalAlpha = finalOpacity;
+                ctx.fillStyle = this.color;
+                
+                // Disegna la linea
+                ctx.fillRect(this.x, this.y, this.width, this.length);
+                ctx.globalAlpha = 1.0; // Reset opacità
             }
 
             update() {
-                // Calcola distanza dal mouse
-                let dx = mouse.x - this.x;
-                let dy = mouse.y - this.y;
-                let distance = Math.sqrt(dx * dx + dy * dy);
-                let forceDirectionX = dx / distance;
-                let forceDirectionY = dy / distance;
-                
-                // Fisica: forza di repulsione
-                let maxDistance = mouseRadius;
-                let force = (maxDistance - distance) / maxDistance;
-                let directionX = forceDirectionX * force * this.density;
-                let directionY = forceDirectionY * force * this.density;
+                this.y -= this.speed; // Muove verso l'alto
 
-                if (distance < mouseRadius) {
-                    // Se il mouse è vicino, sposta il punto via
-                    this.x -= directionX * 5; // *5 è la velocità di repulsione
-                    this.y -= directionY * 5;
-                } else {
-                    // Altrimenti torna alla posizione originale
-                    if (this.x !== this.baseX) {
-                        let dx = this.x - this.baseX;
-                        this.x -= dx / 10; // Velocità di ritorno (più alto = più lento)
-                    }
-                    if (this.y !== this.baseY) {
-                        let dy = this.y - this.baseY;
-                        this.y -= dy / 10;
-                    }
+                // Se la linea è uscita completamente dallo schermo in alto
+                if (this.y + this.length < 0) {
+                    this.init(); // Ricicla la linea riposizionandola sotto
                 }
             }
         }
 
-        function init() {
-            dots = [];
+        function resize() {
             width = canvas.width = window.innerWidth;
             height = canvas.height = window.innerHeight;
+        }
 
-            // Crea la griglia di punti
-            for (let x = 0; x < width; x += spacing) {
-                for (let y = 0; y < height; y += spacing) {
-                    dots.push(new Dot(x, y));
-                }
+        function initLines() {
+            lines = [];
+            for (let i = 0; i < config.lineCount; i++) {
+                const line = new Line();
+                line.init(true); // true = distribuisci inizialmente sullo schermo
+                lines.push(line);
             }
         }
 
         function animate() {
+            // Pulisce il canvas (il colore di fondo è gestito dal CSS)
             ctx.clearRect(0, 0, width, height);
             
-            // Controlla il tema corrente per il colore dei punti
-            if (document.body.classList.contains('theme-light')) {
-                dotColor = 'rgba(100, 116, 139, 0.4)'; // Grigio nel tema chiaro
-            } else {
-                dotColor = 'rgba(59, 130, 246, 0.4)'; // Blu nel tema scuro
-            }
-
-            for (let i = 0; i < dots.length; i++) {
-                dots[i].draw();
-                dots[i].update();
+            for (let line of lines) {
+                line.draw();
+                line.update();
             }
             requestAnimationFrame(animate);
         }
 
         // Event Listeners
-        window.addEventListener('resize', init);
-        
-        window.addEventListener('mousemove', (event) => {
-            mouse.x = event.x;
-            mouse.y = event.y;
-        });
-        
-        // Resetta mouse quando esce dalla finestra
-        window.addEventListener('mouseout', () => {
-            mouse.x = -1000;
-            mouse.y = -1000;
+        window.addEventListener('resize', () => {
+            resize();
+            initLines(); // Ricrea le linee se si ridimensiona la finestra
         });
 
         // Avvio
-        init();
+        resize();
+        initLines();
         animate();
     })();
   </script>
