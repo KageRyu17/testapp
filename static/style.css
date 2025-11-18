@@ -681,22 +681,24 @@ body.theme-light .deck-item { background: rgba(255, 255, 255, 0.6); }
 
 .hidden { display: none !important; }
 
-/* --- SFONDO DOT GRID --- */
-#dotCanvas {
+/* --- SFONDO FLOATING LINES --- */
+#backgroundCanvas {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: -1; /* Manda lo sfondo dietro a tutto */
-    pointer-events: none; /* Permette di cliccare attraverso i punti */
+    z-index: -1; /* Dietro a tutto */
+    pointer-events: none; /* Non blocca i click */
+    /* Background base che cambia col tema */
+    transition: background 0.5s ease;
 }
 
-/* Nascondiamo i gradienti vecchi se vogliamo vedere bene i punti */
-body.theme-dark {
-    background: #0f172a; /* Sfondo solido scuro invece del gradiente */
+/* Colore di fondo base su cui scorrono le linee */
+body.theme-dark #backgroundCanvas {
+    background-color: #0f172a; 
 }
 
-body.theme-light {
-    background: #f9fafb; /* Sfondo solido chiaro */
+body.theme-light #backgroundCanvas {
+    background-color: #f8fafc;
 }
