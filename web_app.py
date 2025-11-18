@@ -6,7 +6,7 @@ from flask import Flask, request, render_template, redirect, url_for, session, f
 from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_API_KEY", "supersecretkey") # Fallback key per dev
+app.secret_key = os.environ.get("SECRET_API_KEY", "supersecretkey")
 
 # --- CONFIGURAZIONE DATABASE ---
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///flashcards.db'
@@ -41,41 +41,80 @@ GEMINI_URL = (
 # --- FUNZIONI DI SUPPORTO ---
 
 def clean_gemini_json(text):
-    """Pulisce la risposta di Gemini per estrarre il JSON puro."""
+    """
+    Pulisce la risposta di Gemini per estrarre il JSON puro.
+    Taglia tutto ciò che c'è prima della prima { o [ e dopo l'ultima } o ].
+    Risolve l'errore 'Extra data'.
+    """
     text = text.strip()
+    
     # Rimuove markdown ```json ... ``` se presente
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1]
-        if text.endswith("```"):
-            text = text.rsplit("\n", 1)[0]
+    if "```" in text:
+        text = text.replace("```json", "").replace("```", "")
     
-    # Cerca graffe se c'è testo sporco intorno
-    start = text.find("[")
-    end = text.rfind("]")
+    # Cerca l'inizio e la fine dell'oggetto JSON o dell'Array
+    start_brace = text.find("{")
+    start_bracket = text.find("[")
+    
+    # Determina dove inizia il JSON (se è un oggetto o un array)
+    start = -1
+    end = -1
+    
+    if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
+        # È un oggetto (Quiz)
+        start = start_brace
+        end = text.rfind("}")
+    elif start_bracket != -1:
+        # È un array (Flashcards)
+        start = start_bracket
+        end = text.rfind("]")
+        
     if start != -1 and end != -1:
-        text = text[start:end+1]
-    return text
+        return text[start:end+1]
+        
+    return text # Ritorna il testo originale se non trova JSON (causerà errore nel try/except dopo)
 
-def generate_questions_with_gemini(program_text: str, num_questions: int):
-    # ... (TUA FUNZIONE ESISTENTE PER IL QUIZ - LA LASCIO UGUALE MA ABBREVIATA QUI PER SPAZIO)
-    # ... COPIA INCOLLA LA TUA FUNZIONE QUI O MANTIENILA ...
-    
-    # NOTA: Per brevità nel codice finale, assumo che tu mantenga la tua funzione originale qui.
-    # Riporto solo la parte di chiamata API per le flashcard sotto.
-    pass 
-
-# Riscrivo la funzione Quiz completa per assicurarci che funzioni tutto insieme
 def generate_quiz_logic(program_text: str, num_questions: int):
-    if num_questions <= 0: raise ValueError("Num > 0")
+    """Genera Quiz mantenendo la logica 50% MCQ e 50% Open."""
+    if num_questions <= 0:
+        raise ValueError("Il numero di domande deve essere > 0")
+
+    # Calcolo mix domande
     desired_mcq = math.ceil(num_questions * 0.5)
     desired_open = num_questions - desired_mcq
-    
+
     full_prompt = f"""
-    Sei un generatore di quiz. Crea domande dal testo fornito.
-    OBIETTIVO: {num_questions} domande ({desired_mcq} mcq, {desired_open} open).
-    No formule. Solo teoria.
-    FORMATO JSON: {{"questions": [{{ "text": "...", "qtype": "mcq", "options": ["..."], "answer": "..." }}]}}
-    TESTO: {program_text}
+    Sei un generatore di quiz in italiano per studenti universitari.
+    Crea domande a partire dal testo fornito.
+    
+    OBIETTIVO:
+    - Genera ESATTAMENTE {num_questions} domande.
+    - Circa {desired_mcq} domande devono essere a risposta multipla ("mcq").
+    - Circa {desired_open} domande devono essere a completamento ("open") con una sola parola.
+    - NO formule, solo teoria.
+
+    FORMATO DI USCITA (JSON PURO):
+    {{
+      "questions": [
+        {{
+          "text": "domanda...",
+          "qtype": "mcq",
+          "options": ["A", "B", "C", "D"],
+          "answer": "A"
+        }},
+        {{
+          "text": "domanda...",
+          "qtype": "open",
+          "options": null,
+          "answer": "parola_singola"
+        }}
+      ]
+    }}
+    
+    Non aggiungere altro testo prima o dopo il JSON.
+
+    TESTO:
+    {program_text}
     """
     
     payload = {"contents": [{"parts": [{"text": full_prompt}]}]}
@@ -83,38 +122,38 @@ def generate_quiz_logic(program_text: str, num_questions: int):
     resp.raise_for_status()
     
     try:
+        # Estrazione
         text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        text = clean_gemini_json(text) # Usa la funzione helper
-        # Fallback parsing specifico per oggetto singolo
-        if text.strip().startswith("{"):
-            parsed = json.loads(text)
+        # Pulizia aggressiva
+        text = clean_gemini_json(text)
+        
+        parsed = json.loads(text)
+        
+        # Se restituisce una lista invece di un oggetto (capita a volte), gestiamolo
+        if isinstance(parsed, list):
+            return parsed
+        elif "questions" in parsed:
+            return parsed["questions"]
         else:
-             # Se inizia con [ prova a wrapparlo o cercare l'oggetto
-             start = text.find("{")
-             end = text.rfind("}")
-             parsed = json.loads(text[start:end+1])
+            raise RuntimeError("Formato JSON imprevisto (manca chiave 'questions')")
 
-        return parsed["questions"]
     except Exception as e:
+        # Log per debug (opzionale, stampa su console)
+        print(f"Errore RAW text da Gemini: {text}") 
         raise RuntimeError(f"Errore parsing Gemini: {e}")
 
 def generate_flashcards_logic(program_text: str, num_cards: int):
-    """Genera flashcard (Fronte/Retro) usando Gemini."""
+    """Genera flashcard (Fronte/Retro)."""
     prompt = f"""
     Crea {num_cards} flashcard basate su questo testo: "{program_text}".
-    Le flashcard servono per la ripetizione spaziata.
     
-    STRUTTURA:
-    - "front": La domanda, il concetto o il termine chiave.
-    - "back": La risposta, la definizione o la spiegazione (concisa).
-    
-    FORMATO OUTPUT:
-    Restituisci SOLO un array JSON valido. Esempio:
+    STRUTTURA RICHIESTA (JSON ARRAY):
     [
-        {{"front": "Cos'è la mitosi?", "back": "Processo di divisione cellulare..."}},
-        {{"front": "Formula velocità", "back": "Spazio fratto tempo"}}
+        {{"front": "Domanda o Concetto", "back": "Risposta o Definizione"}},
+        {{"front": "...", "back": "..."}}
     ]
-    Non aggiungere altro testo.
+    
+    Output SOLO JSON valido. Niente testo introduttivo.
     """
     
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -137,10 +176,9 @@ def index():
 
 @app.route("/generate", methods=["POST"])
 def generate_quiz():
-    # Questa rotta gestisce sia Quiz che Flashcard in base al bottone premuto
     program_text = request.form.get("program_text", "").strip()
     num_input = request.form.get("num_questions", "").strip()
-    action = request.form.get("action", "quiz") # Default quiz
+    action = request.form.get("action", "quiz") # Default a quiz se manca
 
     if not program_text:
         flash("Devi incollare il contenuto del programma.")
@@ -151,14 +189,18 @@ def generate_quiz():
         return redirect(url_for("index"))
     
     count = int(num_input)
+    if count <= 0 or count > 50:
+        flash("Il numero deve essere tra 1 e 50.")
+        return redirect(url_for("index"))
     
     if action == "flashcards":
-        # --- LOGICA FLASHCARD ---
+        # --- PERCORSO FLASHCARDS ---
         try:
             cards_data = generate_flashcards_logic(program_text, count)
             
-            # Salva nel DB
-            title = program_text[:40] + "..." if len(program_text) > 40 else program_text
+            # Titolo breve per il salvataggio
+            title = program_text[:50].replace("\n", " ") + "..." 
+            
             new_deck = Deck(topic=title)
             db.session.add(new_deck)
             db.session.commit()
@@ -175,9 +217,8 @@ def generate_quiz():
             return redirect(url_for("index"))
             
     else:
-        # --- LOGICA QUIZ (Tua esistente) ---
+        # --- PERCORSO QUIZ ---
         try:
-            # Nota: qui chiamo la funzione logica ricostruita sopra
             questions = generate_quiz_logic(program_text, count)
             session["questions"] = questions
             return render_template("quiz.html", questions=questions)
@@ -187,9 +228,9 @@ def generate_quiz():
 
 @app.route("/submit", methods=["POST"])
 def submit_quiz():
-    # ... (La tua logica di submit_quiz esistente rimane identica) ...
     questions = session.get("questions")
     if not questions:
+        flash("Nessun quiz attivo.")
         return redirect(url_for("index"))
         
     score = 0.0
@@ -198,13 +239,15 @@ def submit_quiz():
     for i, q in enumerate(questions):
         ans = request.form.get(f"q{i}", "").strip()
         is_correct = False
+        result = "blank"
         
         if not ans:
-            result = "blank"; blank += 1
+            blank += 1
         else:
             if q["qtype"] == "mcq":
                 is_correct = (ans == q["answer"])
             else:
+                # Per le open, controllo case-insensitive
                 is_correct = (ans.lower() == q["answer"].lower())
             
             if is_correct:
@@ -212,8 +255,14 @@ def submit_quiz():
             else:
                 score -= 0.1; wrong += 1; result = "wrong"
         
-        details.append({"text": q["text"], "user_answer": ans, "correct_answer": q["answer"], "result": result})
+        details.append({
+            "text": q["text"], 
+            "user_answer": ans, 
+            "correct_answer": q["answer"], 
+            "result": result
+        })
 
+    session.pop("questions", None) # Pulisce sessione dopo submit
     return render_template("result.html", total=len(questions), correct=correct, wrong=wrong, blank=blank, score=f"{score:.2f}", details=details)
 
 # --- NUOVE ROTTE FLASHCARD ---
