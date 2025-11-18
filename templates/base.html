@@ -17,7 +17,11 @@
     <header class="site-header">
       <div class="site-header-inner">
         <div>
-          <h1 class="site-title">Quiz Universitario AI</h1>
+          <h1 class="site-title">
+            Preparati con 
+            <span id="rotating-text-root" class="rotating-text-container">
+                </span>
+          </h1>
           <p class="site-subtitle">Creato da Adam Khiraoui</p>
         </div>
         <button type="button" class="theme-toggle" onclick="toggleTheme()">
@@ -46,7 +50,7 @@
   </div>
 
   <script>
-    // --- LOGICA TEMA ---
+    // --- LOGICA TEMA (Esistente) ---
     function applySavedTheme() {
       const saved = localStorage.getItem("quiz_theme");
       const body = document.body;
@@ -73,16 +77,15 @@
     }
     applySavedTheme();
 
-    // --- LETTER GLITCH ANIMATION (Vanilla JS Port) ---
+    // --- A. LETTER GLITCH ANIMATION (Sfondo - Vanilla JS Port) ---
     (function() {
         const canvas = document.getElementById('glitchCanvas');
         const context = canvas.getContext('2d');
         const container = document.getElementById('glitch-container');
 
-        // CONFIGURAZIONE (uguale al codice React)
         const config = {
             glitchSpeed: 50,
-            colors: ['#2b4539', '#61dca3', '#61b3dc'], // Colori originali
+            colors: ['#2b4539', '#61dca3', '#61b3dc'],
             chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$&*()-_+=/[]{};:<>.,0123456789',
             fontSize: 16,
             charWidth: 10,
@@ -96,7 +99,6 @@
         let animationFrameId;
         let resizeTimeout;
 
-        // Helper Functions
         const getRandomChar = () => config.chars[Math.floor(Math.random() * config.chars.length)];
         const getRandomColor = () => config.colors[Math.floor(Math.random() * config.colors.length)];
 
@@ -118,7 +120,6 @@
             return `rgb(${result.r}, ${result.g}, ${result.b})`;
         };
 
-        // Core Logic
         const calculateGrid = (width, height) => {
             const columns = Math.ceil(width / config.charWidth);
             const rows = Math.ceil(height / config.charHeight);
@@ -143,7 +144,6 @@
             canvas.width = rect.width * dpr;
             canvas.height = rect.height * dpr;
             
-            // Importante per la nitidezza su schermi retina
             context.scale(dpr, dpr);
 
             canvas.style.width = `${rect.width}px`;
@@ -164,14 +164,13 @@
                 const x = (index % grid.columns) * config.charWidth;
                 const y = Math.floor(index / grid.columns) * config.charHeight;
                 
-                // Se il colore è in transizione, interpolalo, altrimenti usa hex diretto
                 context.fillStyle = letter.color.startsWith('#') ? letter.color : letter.color;
                 context.fillText(letter.char, x, y);
             });
         };
 
         const updateLetters = () => {
-            const updateCount = Math.max(1, Math.floor(letters.length * 0.05)); // 5% di lettere cambiano
+            const updateCount = Math.max(1, Math.floor(letters.length * 0.05));
 
             for (let i = 0; i < updateCount; i++) {
                 const index = Math.floor(Math.random() * letters.length);
@@ -196,10 +195,6 @@
                     letter.colorProgress += 0.05;
                     if (letter.colorProgress > 1) letter.colorProgress = 1;
 
-                    const startRgb = hexToRgb(letter.color.startsWith('rgb') ? '#000000' : letter.color); 
-                    // Nota: startRgb è un po' complesso se è già rgb, semplifichiamo usando il target precedente
-                    // Nella versione vanilla per semplicità facciamo transizione diretta se hex
-                    
                     const startHex = letter.color.startsWith('#') ? letter.color : letter.targetColor; 
                     const start = hexToRgb(startHex);
                     const end = hexToRgb(letter.targetColor);
@@ -219,14 +214,12 @@
         const animate = () => {
             const now = Date.now();
             
-            // Aggiorna lettere e colori target in base alla velocità
             if (now - lastGlitchTime >= config.glitchSpeed) {
                 updateLetters();
                 drawLetters();
                 lastGlitchTime = now;
             }
 
-            // Gestisce la sfumatura del colore frame per frame
             if (config.smooth) {
                 handleSmoothTransitions();
             }
@@ -246,6 +239,58 @@
                 animate();
             }, 100);
         });
+    })();
+
+
+    // --- B. ROTATING TEXT (Titolo - Vanilla JS Port) ---
+    (function() {
+        const texts = ['Flashcard', 'Quiz'];
+        const rotationInterval = 2000;
+        const container = document.getElementById('rotating-text-root');
+        if (!container) return; 
+
+        let currentIndex = 0;
+        let items = [];
+
+        function initializeRotatingText() {
+            container.innerHTML = '';
+            texts.forEach((text) => {
+                const span = document.createElement('span');
+                span.className = 'rotating-text-item';
+                span.textContent = text;
+                span.style.transitionDelay = '0ms';
+                
+                container.appendChild(span);
+                items.push(span);
+            });
+            
+            items[currentIndex].classList.add('active');
+        }
+
+        function rotateText() {
+            const currentItem = items[currentIndex];
+            
+            const nextIndex = (currentIndex + 1) % texts.length;
+            const nextItem = items[nextIndex];
+            
+            // Exit
+            currentItem.classList.add('exit');
+            currentItem.classList.remove('active');
+            
+            // Enter
+            nextItem.classList.remove('exit'); 
+            nextItem.classList.add('active');
+            
+            // Cleanup: rimuovi 'exit' dopo la transizione
+            setTimeout(() => {
+                currentItem.classList.remove('exit');
+            }, 500); 
+
+            currentIndex = nextIndex;
+        }
+
+        initializeRotatingText();
+        setInterval(rotateText, rotationInterval);
     })();
   </script>
 </body>
